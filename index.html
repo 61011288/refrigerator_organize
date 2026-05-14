@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="冰箱">
+  <title>冰箱</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --accent: #4f9cf9;
+      --accent-light: rgba(79, 156, 249, 0.1);
+      --bg: #ffffff;
+      --surface: #f5f5f7;
+      --border: #e5e5ea;
+      --text: #1c1c1e;
+      --muted: #8e8e93;
+      --tab-h: 48px;
+      --safe-top: env(safe-area-inset-top);
+      --safe-bottom: env(safe-area-inset-bottom);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── tabs ── */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+      flex-shrink: 0;
+      padding-top: var(--safe-top);
+    }
+
+    .tab {
+      flex: 1;
+      height: var(--tab-h);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    /* ── panels ── */
+    .panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+    .panel.active { display: flex; }
+
+    .item-list {
+      flex: 1;
+      padding: 8px 16px 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--muted);
+    }
+
+    .empty-state p { font-size: 15px; }
+
+    /* ── category label ── */
+    .category-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.4px;
+      padding: 10px 2px 2px;
+    }
+
+    /* ── food card ── */
+    .food-card {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 11px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .food-info { flex: 1; min-width: 0; }
+
+    .food-name {
+      font-size: 15px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .food-dates {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .days-badge {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 20px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .days-badge.ok   { background: var(--accent-light); color: var(--accent); }
+    .days-badge.warn { background: rgba(255, 179, 0, 0.12); color: #b37400; }
+    .days-badge.bad  { background: rgba(255, 69, 58, 0.1); color: #d93025; }
+
+    /* ── fab ── */
+    .fab {
+      position: fixed;
+      bottom: calc(var(--safe-bottom) + 24px);
+      right: 24px;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      font-size: 20px;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 2px 10px rgba(79, 156, 249, 0.45);
+      -webkit-tap-highlight-color: transparent;
+      z-index: 50;
+    }
+
+    .fab:active { transform: scale(0.92); }
+
+    /* ── bottom sheet overlay ── */
+    .overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.3);
+      z-index: 100;
+      align-items: flex-end;
+    }
+
+    .overlay.open { display: flex; }
+
+    /* ── bottom sheet ── */
+    .sheet {
+      width: 100%;
+      background: var(--bg);
+      border-radius: 20px 20px 0 0;
+      padding: 0 20px calc(var(--safe-bottom) + 24px);
+      transform: translateY(100%);
+      transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    .overlay.open .sheet { transform: translateY(0); }
+
+    .sheet-handle {
+      width: 36px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      margin: 12px auto 20px;
+    }
+
+    .sheet h2 {
+      font-size: 17px;
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+
+    /* ── form ── */
+    .field { margin-bottom: 16px; }
+
+    .field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .field input[type="text"],
+    .field input[type="date"] {
+      width: 100%;
+      height: 44px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0 12px;
+      font-size: 15px;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--bg);
+      outline: none;
+      -webkit-appearance: none;
+    }
+
+    .field input:focus { border-color: var(--accent); }
+
+    /* shelf life row: auto-filled input + lookup hint */
+    .shelf-row { display: flex; align-items: center; gap: 8px; }
+    .shelf-row input { flex: 1; }
+    .shelf-hint {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .shelf-hint.found   { color: #34a853; }
+    .shelf-hint.missing { color: #b37400; }
+    .shelf-hint.ai      { color: var(--accent); }
+
+    .field input.needs-input {
+      border-color: #f0b429;
+      background: rgba(255, 179, 0, 0.04);
+    }
+
+    .field input.error { border-color: #d93025; }
+    .cat-pills.error .cat-pill:not(.selected) { border-color: #d93025; }
+
+    /* ── category pills ── */
+    .cat-pills {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .cat-pill {
+      height: 34px;
+      padding: 0 14px;
+      border-radius: 17px;
+      border: 1.5px solid var(--border);
+      background: var(--bg);
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--muted);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .cat-pill.selected {
+      border-color: var(--accent);
+      background: var(--accent-light);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* ── submit button ── */
+    .btn-submit {
+      width: 100%;
+      height: 48px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      margin-top: 8px;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .btn-submit:active { opacity: 0.85; }
+    .btn-submit:disabled { opacity: 0.4; cursor: default; }
+  </style>
+</head>
+<body>
+
+<div class="tabs">
+  <div class="tab active" data-tab="fridge">冷藏</div>
+  <div class="tab" data-tab="freezer">冷冻</div>
+</div>
+
+<div class="panel active" id="panel-fridge">
+  <div class="item-list" id="list-fridge"></div>
+</div>
+
+<div class="panel" id="panel-freezer">
+  <div class="item-list" id="list-freezer"></div>
+</div>
+
+<button class="fab" id="fab">＋</button>
+
+<!-- bottom sheet -->
+<div class="overlay" id="overlay">
+  <div class="sheet" id="sheet">
+    <div class="sheet-handle"></div>
+    <h2>添加食材</h2>
+
+    <div class="field">
+      <label>名称</label>
+      <input type="text" id="f-name" placeholder="例：鸡蛋、草莓" autocomplete="off">
+    </div>
+
+    <div class="field">
+      <label>类目</label>
+      <div class="cat-pills" id="cat-pills">
+        <button class="cat-pill" data-cat="蔬菜">蔬菜</button>
+        <button class="cat-pill" data-cat="水果">水果</button>
+        <button class="cat-pill" data-cat="肉类">肉类</button>
+        <button class="cat-pill" data-cat="鱼虾">鱼虾</button>
+        <button class="cat-pill" data-cat="蛋奶">蛋奶</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>购买日期</label>
+      <input type="date" id="f-date">
+    </div>
+
+    <div class="field">
+      <label>建议食用（天数）</label>
+      <div class="shelf-row">
+        <input type="text" id="f-shelf" placeholder="天数" inputmode="numeric">
+        <span class="shelf-hint" id="shelf-hint"></span>
+      </div>
+    </div>
+
+    <button class="btn-submit" id="btn-submit">添加</button>
+  </div>
+</div>
+
+<script>
+// ─── USDA FoodKeeper data (fridge days, best-use max) ───────────────────────
+// Format: keyword → days in fridge (冷藏). Freezer items use separate logic.
+const USDA = {
+  // 蔬菜
+  '菠菜': 3, '生菜': 3, '叶菜': 3, '小葱': 5, '韭菜': 3, '芹菜': 7,
+  '西兰花': 5, '花椰菜': 5, '胡萝卜': 14, '萝卜': 14, '黄瓜': 7,
+  '番茄': 5, '西红柿': 5, '茄子': 7, '辣椒': 7, '青椒': 7,
+  '豆腐': 3, '豆芽': 3, '蘑菇': 5, '香菇': 7, '金针菇': 5,
+  '土豆': 14, '洋葱': 14, '大蒜': 14, '姜': 14,
+  // 水果
+  '草莓': 3, '蓝莓': 7, '葡萄': 7, '樱桃': 5, '荔枝': 3,
+  '苹果': 21, '梨': 14, '橙子': 14, '橘子': 14, '柚子': 21,
+  '芒果': 5, '木瓜': 5, '猕猴桃': 7, '桃': 5, '李子': 5,
+  '香蕉': 3, '西瓜': 5,
+  // 肉类
+  '鸡肉': 2, '鸡胸': 2, '鸡腿': 2, '鸭肉': 2, '猪肉': 3,
+  '牛肉': 3, '羊肉': 3, '猪排': 3, '牛排': 3, '培根': 7,
+  '香肠': 7, '火腿': 5,
+  // 鱼虾
+  '鱼': 2, '三文鱼': 2, '鲈鱼': 2, '鲫鱼': 2, '带鱼': 2,
+  '虾': 2, '虾仁': 2, '螃蟹': 1, '蛤蜊': 2, '扇贝': 2,
+  '鱿鱼': 2, '章鱼': 2,
+  // 蛋奶
+  '鸡蛋': 35, '鸭蛋': 21, '皮蛋': 30,
+  '牛奶': 7, '酸奶': 14, '奶酪': 21, '黄油': 30, '奶油': 7,
+};
+
+// Freezer multiplier: most items last ~3 months frozen
+const FREEZER_DAYS = 90;
+
+function lookupShelfDays(name, location) {
+  if (location === 'freezer') return FREEZER_DAYS;
+  const key = Object.keys(USDA).find(k => name.includes(k));
+  return key ? USDA[key] : null;
+}
+
+// ─── state ───────────────────────────────────────────────────────────────────
+const CATEGORIES = ['蔬菜', '水果', '肉类', '鱼虾', '蛋奶', '其他'];
+
+function loadItems() {
+  try { return JSON.parse(localStorage.getItem('fridge_items') || '[]'); } catch { return []; }
+}
+
+function saveItems(items) {
+  localStorage.setItem('fridge_items', JSON.stringify(items));
+}
+
+function addItem(item) {
+  const items = loadItems();
+  items.push(item);
+  saveItems(items);
+}
+
+// ─── render ──────────────────────────────────────────────────────────────────
+const today = () => new Date().toISOString().slice(0, 10);
+
+function daysRemaining(bestUseDate) {
+  const diff = Math.ceil((new Date(bestUseDate) - new Date(today())) / 86400000);
+  return diff;
+}
+
+function badgeClass(days) {
+  if (days <= 1) return 'bad';
+  if (days <= 4) return 'warn';
+  return 'ok';
+}
+
+function badgeText(days) {
+  if (days <= 0) return '已过期';
+  if (days === 1) return '今天';
+  return days + '天';
+}
+
+function fmt(dateStr) {
+  const [, m, d] = dateStr.split('-');
+  return m + '/' + d;
+}
+
+function renderList(location) {
+  const listEl = document.getElementById('list-' + location);
+  const items = loadItems().filter(i => i.location === location);
+
+  if (items.length === 0) {
+    listEl.innerHTML = '<div class="empty-state"><p>还没有食材</p></div>';
+    return;
+  }
+
+  // group by category (preserve CATEGORIES order)
+  const groups = {};
+  CATEGORIES.forEach(c => { groups[c] = []; });
+  items.forEach(i => { if (groups[i.category]) groups[i.category].push(i); });
+
+  let html = '';
+  CATEGORIES.forEach(cat => {
+    if (groups[cat].length === 0) return;
+    html += `<div class="category-label">${cat}</div>`;
+    groups[cat].forEach(item => {
+      const days = daysRemaining(item.bestUseDate);
+      html += `
+        <div class="food-card" data-id="${item.id}">
+          <div class="food-info">
+            <div class="food-name">${item.name}</div>
+            <div class="food-dates">购买 ${fmt(item.purchaseDate)} · 建议 ${fmt(item.bestUseDate)}</div>
+          </div>
+          <span class="days-badge ${badgeClass(days)}">${badgeText(days)}</span>
+        </div>`;
+    });
+  });
+
+  listEl.innerHTML = html;
+}
+
+function renderAll() {
+  renderList('fridge');
+  renderList('freezer');
+}
+
+// ─── tabs ─────────────────────────────────────────────────────────────────────
+let activeTab = 'fridge';
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', function () {
+    activeTab = this.dataset.tab;
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => { p.classList.remove('active'); p.style.display = 'none'; });
+    this.classList.add('active');
+    const panel = document.getElementById('panel-' + activeTab);
+    panel.classList.add('active');
+    panel.style.display = 'flex';
+  });
+});
+
+// ─── bottom sheet ─────────────────────────────────────────────────────────────
+const overlay = document.getElementById('overlay');
+const sheet   = document.getElementById('sheet');
+const fName   = document.getElementById('f-name');
+const fDate   = document.getElementById('f-date');
+const fShelf  = document.getElementById('f-shelf');
+const shelfHint = document.getElementById('shelf-hint');
+const btnSubmit = document.getElementById('btn-submit');
+
+let selectedCat = null;
+
+function openSheet() {
+  fDate.value = today();
+  fName.value = '';
+  fShelf.value = '';
+  shelfHint.textContent = '';
+  shelfHint.className = 'shelf-hint';
+  selectedCat = null;
+  document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('selected'));
+  btnSubmit.disabled = false;
+  overlay.classList.add('open');
+  setTimeout(() => fName.focus(), 320);
+}
+
+function closeSheet() {
+  overlay.classList.remove('open');
+}
+
+document.getElementById('fab').addEventListener('click', openSheet);
+overlay.addEventListener('click', e => { if (e.target === overlay) closeSheet(); });
+
+// category pills
+document.querySelectorAll('.cat-pill').forEach(pill => {
+  pill.addEventListener('click', function () {
+    selectedCat = this.dataset.cat;
+    document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('selected'));
+    this.classList.add('selected');
+  });
+});
+
+// name → auto shelf lookup (on input with debounce + on blur)
+let lookupTimer = null;
+function doLookup() {
+  const name = fName.value.trim();
+  if (!name) { shelfHint.textContent = ''; return; }
+  const days = lookupShelfDays(name, activeTab);
+  if (days !== null) {
+    fShelf.value = days;
+    shelfHint.textContent = '✓ 已自动填写';
+    shelfHint.className = 'shelf-hint found';
+    fShelf.classList.remove('needs-input');
+  } else {
+    // only clear if not already manually filled
+    if (!fShelf.value) {
+      shelfHint.textContent = '未收录，请手动填写';
+      shelfHint.className = 'shelf-hint missing';
+      fShelf.classList.add('needs-input');
+    }
+  }
+}
+fName.addEventListener('input', () => {
+  clearTimeout(lookupTimer);
+  lookupTimer = setTimeout(doLookup, 400);
+});
+fName.addEventListener('blur', doLookup);
+
+fShelf.addEventListener('input', () => {
+  fShelf.classList.remove('error', 'needs-input');
+  shelfHint.textContent = '';
+});
+
+btnSubmit.addEventListener('click', () => {
+  // validate & highlight errors
+  let ok = true;
+  fName.classList.remove('error');
+  fShelf.classList.remove('error');
+  document.getElementById('cat-pills').classList.remove('error');
+
+  if (!fName.value.trim()) { fName.classList.add('error'); ok = false; }
+  // category is optional — defaults to '其他'
+  const shelfDays = parseInt(fShelf.value, 10);
+  if (!shelfDays || shelfDays <= 0) { fShelf.classList.add('error'); ok = false; }
+  if (!ok) return;
+
+  const purchaseDate = fDate.value;
+  const bestUseDate = new Date(new Date(purchaseDate + 'T12:00:00').getTime() + shelfDays * 86400000)
+    .toISOString().slice(0, 10);
+
+  addItem({
+    id: Date.now().toString(),
+    name: fName.value.trim(),
+    category: selectedCat || '其他',
+    location: activeTab,
+    purchaseDate,
+    bestUseDate,
+  });
+
+  closeSheet();
+  renderAll();
+});
+
+// ─── init ─────────────────────────────────────────────────────────────────────
+renderAll();
+</script>
+
+</body>
+</html>
