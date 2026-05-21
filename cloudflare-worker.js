@@ -67,28 +67,29 @@ export default {
           thinking: { type: think ? 'enabled' : 'disabled' },
           temperature: 0,
           max_tokens: think ? 800 : 60,
+          // NOTE: ask the model to reply with ASCII only (a category NUMBER and a
+          // day count). DeepSeek's Chinese response bytes get corrupted in transit
+          // to this Worker, but digits survive — so we map the number to Chinese here.
           messages: [
-            { role: 'system', content: '你是食品保鲜助手。根据食材名称和存放方式，估算它在该方式下还能放心食用多少天（整数，按食品安全常识，冷冻通常能存数月），并判断类目（只能是：蔬菜、水果、肉类、鱼虾、蛋奶、酱料、饮品、其他；调味酱料归“酱料”）。只回复 JSON：{"category":"水果","days":3}，不要多余文字。' },
-            { role: 'user', content: '食材：' + name + '；存放方式：' + loc },
+            { role: 'system', content: 'You estimate food storage. Given a food name and storage method (冷藏=fridge, 冷冻=freezer), output ONLY JSON: {"c":N,"days":M}. N is the category number: 1=蔬菜(vegetable) 2=水果(fruit) 3=肉类(meat) 4=鱼虾(seafood) 5=蛋奶(egg/dairy) 6=酱料(sauce/condiment) 7=饮品(drink) 8=其他(other). M is the integer number of days it stays safe to eat under that method (use food-safety norms; frozen items usually last months). No other text.' },
+            { role: 'user', content: 'Food: ' + name + '; Storage: ' + loc },
           ],
         }),
       });
       const data = await r.json();
       const txt = ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '').trim();
 
-      const ALLOWED = ['蔬菜', '水果', '肉类', '鱼虾', '蛋奶', '酱料', '饮品', '其他'];
+      const CATS = { 1: '蔬菜', 2: '水果', 3: '肉类', 4: '鱼虾', 5: '蛋奶', 6: '酱料', 7: '饮品', 8: '其他' };
       let category = '其他', days = 0;
       try {
         const j = JSON.parse(txt.replace(/```json|```/g, '').trim());
-        if (j.category) category = String(j.category);
+        if (j.c != null && CATS[j.c]) category = CATS[j.c];
         if (j.days != null) days = parseInt(j.days, 10) || 0;
       } catch {
-        const dm = txt.match(/\d+/);
-        days = dm ? parseInt(dm[0], 10) : 0;
-        const cm = txt.match(/蔬菜|水果|肉类|鱼虾|蛋奶|酱料|饮品/);
-        if (cm) category = cm[0];
+        const nums = txt.match(/\d+/g) || [];
+        if (nums[0] && CATS[nums[0]]) category = CATS[nums[0]];
+        if (nums[1]) days = parseInt(nums[1], 10) || 0;
       }
-      if (!ALLOWED.includes(category)) category = '其他';
       if (body.debug) return json({ days, category, raw: txt }, 200, cors);
       return json({ days, category }, 200, cors);
     } catch (e) {
