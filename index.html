@@ -259,7 +259,8 @@
       margin-bottom: 6px;
     }
 
-    .field input {
+    .field input,
+    .field select {
       width: 100%;
       height: 44px;
       border: 1px solid var(--border);
@@ -271,9 +272,11 @@
       background: var(--bg);
       outline: none;
       -webkit-appearance: none;
+      appearance: none;
     }
 
-    .field input:focus { border-color: var(--accent); }
+    .field input:focus,
+    .field select:focus { border-color: var(--accent); }
 
     /* shelf life row: auto-filled input + lookup hint */
     .shelf-row { display: flex; align-items: center; gap: 8px; }
@@ -393,6 +396,11 @@
     </div>
 
     <div class="field">
+      <label>数量（可选，留空不显示）</label>
+      <input type="text" id="f-qty" placeholder="例：3" inputmode="numeric">
+    </div>
+
+    <div class="field">
       <label>类目</label>
       <div class="cat-pills" id="cat-pills">
         <button class="cat-pill" data-cat="蔬菜">蔬菜</button>
@@ -400,6 +408,8 @@
         <button class="cat-pill" data-cat="肉类">肉类</button>
         <button class="cat-pill" data-cat="鱼虾">鱼虾</button>
         <button class="cat-pill" data-cat="蛋奶">蛋奶</button>
+        <button class="cat-pill" data-cat="酱料">酱料</button>
+        <button class="cat-pill" data-cat="饮品">饮品</button>
       </div>
     </div>
 
@@ -469,9 +479,15 @@
       <input type="text" id="ai-proxy" placeholder="https://xxx.workers.dev" autocomplete="off" inputmode="url">
     </div>
 
+    <div class="field">
+      <label>模型</label>
+      <select id="ai-model"></select>
+    </div>
+    <button class="action-btn" id="ai-fetch" style="margin-bottom:10px;">拉取可用模型</button>
+
     <p class="sync-help">
-      USDA 表里查不到的食材，会自动用 AI 估算建议天数。DeepSeek key 藏在你的
-      Cloudflare Worker 里，这里只填 Worker 网址，前端不接触 key。
+      USDA 表里查不到的食材，会自动用 AI 估算建议天数与类目。DeepSeek key 藏在你的
+      Cloudflare Worker 里，这里只填 Worker 网址和模型，前端不接触 key。
     </p>
 
     <p class="sync-status" id="ai-status">AI 未配置</p>
@@ -481,44 +497,82 @@
 </div>
 
 <script>
-// ─── USDA FoodKeeper data (fridge days, best-use max) ───────────────────────
-// Format: keyword → days in fridge (冷藏). Freezer items use separate logic.
-const USDA = {
-  // 蔬菜
-  '菠菜': 3, '生菜': 3, '叶菜': 3, '小葱': 5, '韭菜': 3, '芹菜': 7,
-  '西兰花': 5, '花椰菜': 5, '胡萝卜': 14, '萝卜': 14, '黄瓜': 7,
-  '番茄': 5, '西红柿': 5, '茄子': 7, '辣椒': 7, '青椒': 7,
-  '豆腐': 3, '豆芽': 3, '蘑菇': 5, '香菇': 7, '金针菇': 5,
-  '土豆': 14, '洋葱': 14, '大蒜': 14, '姜': 14,
-  // 水果
-  '草莓': 3, '蓝莓': 7, '葡萄': 7, '樱桃': 5, '荔枝': 3,
-  '苹果': 21, '梨': 14, '橙子': 14, '橘子': 14, '柚子': 21,
-  '芒果': 5, '木瓜': 5, '猕猴桃': 7, '桃': 5, '李子': 5,
-  '香蕉': 3, '西瓜': 5,
-  // 肉类
-  '鸡肉': 2, '鸡胸': 2, '鸡腿': 2, '鸭肉': 2, '猪肉': 3,
-  '牛肉': 3, '羊肉': 3, '猪排': 3, '牛排': 3, '培根': 7,
-  '香肠': 7, '火腿': 5,
-  // 鱼虾
-  '鱼': 2, '三文鱼': 2, '鲈鱼': 2, '鲫鱼': 2, '带鱼': 2,
-  '虾': 2, '虾仁': 2, '螃蟹': 1, '蛤蜊': 2, '扇贝': 2,
-  '鱿鱼': 2, '章鱼': 2,
-  // 蛋奶
-  '鸡蛋': 35, '鸭蛋': 21, '皮蛋': 30,
-  '牛奶': 7, '酸奶': 14, '奶酪': 21, '黄油': 30, '奶油': 7,
+// ─── food table, grouped by category (keyword → fridge days) ────────────────
+const FOOD_DB = {
+  '蔬菜': {
+    '菠菜': 3, '生菜': 3, '叶菜': 3, '油菜': 3, '空心菜': 3, '茼蒿': 3, '小白菜': 3,
+    '白菜': 7, '娃娃菜': 7, '卷心菜': 7, '包菜': 7, '甘蓝': 7,
+    '小葱': 5, '香葱': 5, '韭菜': 3, '芹菜': 7, '西芹': 7, '香菜': 5,
+    '西兰花': 5, '花椰菜': 5, '菜花': 5, '胡萝卜': 14, '白萝卜': 14, '萝卜': 14,
+    '黄瓜': 7, '番茄': 5, '西红柿': 5, '圣女果': 7, '小番茄': 7,
+    '茄子': 7, '青椒': 7, '彩椒': 7, '尖椒': 7, '辣椒': 7,
+    '豆腐': 3, '豆芽': 3, '豆角': 5, '四季豆': 5, '豌豆': 5, '毛豆': 3,
+    '蘑菇': 5, '香菇': 7, '金针菇': 5, '杏鲍菇': 7, '平菇': 5, '菌菇': 5, '木耳': 7,
+    '土豆': 14, '洋葱': 14, '大蒜': 14, '生姜': 14, '姜': 14,
+    '南瓜': 30, '冬瓜': 14, '丝瓜': 5, '苦瓜': 7, '秋葵': 7, '玉米': 5,
+    '芦笋': 4, '莴笋': 7, '红薯': 14, '山药': 14, '莲藕': 10, '荷兰豆': 5,
+  },
+  '水果': {
+    '草莓': 3, '蓝莓': 7, '葡萄': 7, '提子': 7, '青提': 7, '红提': 7,
+    '樱桃': 5, '车厘子': 5, '荔枝': 3, '龙眼': 5, '桂圆': 5,
+    '苹果': 21, '蛇果': 21, '梨': 14, '橙子': 14, '橙': 14, '橘子': 14, '桔子': 14,
+    '柚子': 21, '西柚': 14, '柠檬': 21, '芒果': 5, '木瓜': 5, '猕猴桃': 7, '奇异果': 7,
+    '桃': 5, '李子': 5, '西梅': 5, '杏': 5, '香蕉': 3, '西瓜': 5,
+    '哈密瓜': 7, '甜瓜': 7, '香瓜': 7, '牛油果': 3, '火龙果': 7, '山竹': 5,
+    '菠萝': 5, '凤梨': 5, '椰子': 14, '石榴': 21, '柿子': 5, '无花果': 3,
+    '枇杷': 5, '百香果': 14, '杨梅': 3, '蓝靛果': 7,
+  },
+  '肉类': {
+    '鸡肉': 2, '鸡胸': 2, '鸡腿': 2, '鸡翅': 2, '鸡爪': 2, '整鸡': 2,
+    '鸭肉': 2, '鸭腿': 2, '猪肉': 3, '五花肉': 3, '里脊': 3, '排骨': 3, '猪排': 3,
+    '肉末': 1, '肉馅': 1, '牛肉': 3, '牛排': 3, '羊肉': 3, '羊排': 3,
+    '培根': 7, '香肠': 7, '腊肠': 30, '腊肉': 30, '火腿': 5, '午餐肉': 5,
+  },
+  '鱼虾': {
+    '三文鱼': 2, '鲈鱼': 2, '鲫鱼': 2, '带鱼': 2, '黄鱼': 2, '鳕鱼': 2,
+    '金枪鱼': 2, '鱼': 2, '虾仁': 2, '基围虾': 2, '明虾': 2, '龙虾': 2, '虾': 2,
+    '螃蟹': 1, '蟹': 1, '蛤蜊': 2, '花甲': 2, '扇贝': 2, '生蚝': 2, '牡蛎': 2,
+    '鲍鱼': 2, '鱿鱼': 2, '章鱼': 2, '墨鱼': 2,
+  },
+  '蛋奶': {
+    '鸡蛋': 35, '鸭蛋': 21, '鹌鹑蛋': 21, '皮蛋': 30, '咸蛋': 30,
+    '牛奶': 7, '酸奶': 14, '奶酪': 21, '芝士': 21, '黄油': 30, '奶油': 7,
+    '淡奶油': 7, '豆浆': 3, '豆奶': 5,
+  },
+  '酱料': {
+    '番茄酱': 60, '番茄沙司': 60, '沙拉酱': 60, '千岛酱': 60, '蛋黄酱': 60,
+    '酱油': 180, '生抽': 180, '老抽': 180, '蚝油': 180, '辣椒酱': 90, '老干妈': 90,
+    '黄豆酱': 90, '甜面酱': 90, '豆瓣酱': 90, '沙茶酱': 90, '芝麻酱': 60, '花生酱': 90,
+    '果酱': 30, '蜂蜜': 365, '醋': 365, '料酒': 180, '芥末': 90, '蒜蓉酱': 60, '酱': 60,
+  },
+  '饮品': {
+    '可乐': 30, '雪碧': 30, '汽水': 30, '苏打水': 90, '气泡水': 90,
+    '果汁': 5, '橙汁': 5, '椰汁': 7, '椰子水': 7, '啤酒': 180,
+    '酸梅汤': 5, '柠檬水': 3, '奶茶': 1, '咖啡': 3, '饮料': 30,
+  },
 };
 
-// Freezer multiplier: most items last ~3 months frozen
+// Freezer: most items last ~3 months frozen
 const FREEZER_DAYS = 90;
 
-function lookupShelfDays(name, location) {
-  if (location === 'freezer') return FREEZER_DAYS;
-  const key = Object.keys(USDA).find(k => name.includes(k));
-  return key ? USDA[key] : null;
+// Returns { days, category } for a known food, else null.
+// Longest keyword wins, so e.g. "番茄酱" beats "番茄".
+function lookupFood(name, location) {
+  let best = null;
+  for (const cat of Object.keys(FOOD_DB)) {
+    const table = FOOD_DB[cat];
+    for (const k of Object.keys(table)) {
+      if (name.includes(k) && (!best || k.length > best.key.length)) {
+        best = { key: k, days: table[k], category: cat };
+      }
+    }
+  }
+  if (!best) return null;
+  return { days: location === 'freezer' ? FREEZER_DAYS : best.days, category: best.category };
 }
 
 // ─── state ───────────────────────────────────────────────────────────────────
-const CATEGORIES = ['蔬菜', '水果', '肉类', '鱼虾', '蛋奶', '其他'];
+const CATEGORIES = ['蔬菜', '水果', '肉类', '鱼虾', '蛋奶', '酱料', '饮品', '其他'];
 
 function loadItems() {
   try { return JSON.parse(localStorage.getItem('fridge_items') || '[]'); } catch { return []; }
@@ -589,11 +643,15 @@ function renderList(location) {
     html += `<div class="category-label">${cat}</div>`;
     groups[cat].forEach(item => {
       const days = daysRemaining(item.bestUseDate);
+      const nameText = item.quantity ? `${item.name} x ${item.quantity}` : item.name;
+      const dates = item.explicitExpiry
+        ? `建议 ${fmt(item.bestUseDate)}`
+        : `购买 ${fmt(item.purchaseDate)} · 建议 ${fmt(item.bestUseDate)}`;
       html += `
         <div class="food-card" data-id="${item.id}">
           <div class="food-info">
-            <div class="food-name">${item.name}</div>
-            <div class="food-dates">购买 ${fmt(item.purchaseDate)} · 建议 ${fmt(item.bestUseDate)}</div>
+            <div class="food-name">${nameText}</div>
+            <div class="food-dates">${dates}</div>
           </div>
           <span class="days-badge ${badgeClass(days)}">${badgeText(days)}</span>
         </div>`;
@@ -627,6 +685,7 @@ document.querySelectorAll('.tab').forEach(tab => {
 const overlay = document.getElementById('overlay');
 const sheet   = document.getElementById('sheet');
 const fName   = document.getElementById('f-name');
+const fQty    = document.getElementById('f-qty');
 const fDate   = document.getElementById('f-date');
 const fExpiry = document.getElementById('f-expiry');
 const fShelf  = document.getElementById('f-shelf');
@@ -635,6 +694,15 @@ const btnSubmit = document.getElementById('btn-submit');
 
 let selectedCat = null;
 let editingId = null;
+let catUserSet = false;   // true once the user manually taps a category pill
+
+const PILL_CATS = ['蔬菜', '水果', '肉类', '鱼虾', '蛋奶', '酱料', '饮品'];
+function selectCategory(cat) {
+  selectedCat = PILL_CATS.includes(cat) ? cat : '其他';
+  document.querySelectorAll('.cat-pill').forEach(p =>
+    p.classList.toggle('selected', p.dataset.cat === selectedCat)
+  );
+}
 
 function openSheet(item) {
   editingId = item ? item.id : null;
@@ -643,23 +711,30 @@ function openSheet(item) {
 
   if (item) {
     fName.value = item.name;
+    fQty.value = item.quantity || '';
     fDate.value = item.purchaseDate;
-    fShelf.value = Math.round(
-      (new Date(item.bestUseDate) - new Date(item.purchaseDate)) / 86400000
-    );
-    selectedCat = item.category;
-    document.querySelectorAll('.cat-pill').forEach(p =>
-      p.classList.toggle('selected', p.dataset.cat === item.category)
-    );
+    if (item.explicitExpiry) {
+      fExpiry.value = item.bestUseDate;
+      fShelf.value = '';
+    } else {
+      fExpiry.value = '';
+      fShelf.value = Math.round(
+        (new Date(item.bestUseDate) - new Date(item.purchaseDate)) / 86400000
+      );
+    }
+    selectCategory(item.category);
+    catUserSet = true;
   } else {
     fDate.value = today();
     fName.value = '';
+    fQty.value = '';
+    fExpiry.value = '';
     fShelf.value = '';
     selectedCat = null;
     document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('selected'));
+    catUserSet = false;
   }
 
-  fExpiry.value = '';
   shelfHint.textContent = '';
   shelfHint.className = 'shelf-hint';
   fName.classList.remove('error');
@@ -679,9 +754,8 @@ overlay.addEventListener('click', e => { if (e.target === overlay) closeSheet();
 // category pills
 document.querySelectorAll('.cat-pill').forEach(pill => {
   pill.addEventListener('click', function () {
-    selectedCat = this.dataset.cat;
-    document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('selected'));
-    this.classList.add('selected');
+    catUserSet = true;
+    selectCategory(this.dataset.cat);
   });
 });
 
@@ -695,15 +769,21 @@ function setMissingHint() {
   fShelf.classList.add('needs-input');
 }
 
+// auto-pick category only if the user hasn't manually chosen one
+function autoCategory(cat) {
+  if (cat && !catUserSet) selectCategory(cat);
+}
+
 async function doLookup() {
   const name = fName.value.trim();
   const seq = ++lookupSeq;
   if (!name) { shelfHint.textContent = ''; shelfHint.className = 'shelf-hint'; return; }
 
-  // 1) local USDA table
-  const days = lookupShelfDays(name, activeTab);
-  if (days !== null) {
-    fShelf.value = days;
+  // 1) local food table (days + category)
+  const hit = lookupFood(name, activeTab);
+  if (hit) {
+    fShelf.value = hit.days;
+    autoCategory(hit.category);
     shelfHint.textContent = '✓ 已自动填写';
     shelfHint.className = 'shelf-hint found';
     fShelf.classList.remove('needs-input');
@@ -713,18 +793,19 @@ async function doLookup() {
   // don't override what the user already typed
   if (fShelf.value) return;
 
-  // 2) AI fallback (only if a key is configured)
+  // 2) AI fallback (only if the proxy is configured)
   if (!getProxy()) { setMissingHint(); return; }
 
   shelfHint.textContent = 'AI 估算中…';
   shelfHint.className = 'shelf-hint ai';
   try {
-    const aiDays = await aiLookup(name, activeTab);
+    const ai = await aiLookup(name, activeTab);
     if (seq !== lookupSeq) return;            // a newer lookup started, ignore
     if (fShelf.value) return;                 // user typed meanwhile
-    if (aiDays) {
-      fShelf.value = aiDays;
-      shelfHint.textContent = 'AI 估算 ≈ ' + aiDays + ' 天，可手动改';
+    if (ai.days) {
+      fShelf.value = ai.days;
+      autoCategory(ai.category);
+      shelfHint.textContent = 'AI 估算 ≈ ' + ai.days + ' 天，可手动改';
       shelfHint.className = 'shelf-hint ai';
       fShelf.classList.remove('needs-input');
     } else {
@@ -765,10 +846,12 @@ btnSubmit.addEventListener('click', () => {
   if (!ok) return;
 
   const purchaseDate = fDate.value;
-  const bestUseDate = fExpiry.value
+  const explicitExpiry = !!fExpiry.value;
+  const bestUseDate = explicitExpiry
     ? fExpiry.value
     : new Date(new Date(purchaseDate + 'T12:00:00').getTime() + shelfDays * 86400000)
         .toISOString().slice(0, 10);
+  const quantity = parseInt(fQty.value, 10) || null;
 
   if (editingId) {
     const items = loadItems();
@@ -777,9 +860,11 @@ btnSubmit.addEventListener('click', () => {
       items[idx] = {
         ...items[idx],
         name: fName.value.trim(),
+        quantity,
         category: selectedCat || '其他',
         purchaseDate,
         bestUseDate,
+        explicitExpiry,
       };
       saveItems(items);
     }
@@ -787,10 +872,12 @@ btnSubmit.addEventListener('click', () => {
     addItem({
       id: Date.now().toString(),
       name: fName.value.trim(),
+      quantity,
       category: selectedCat || '其他',
       location: activeTab,
       purchaseDate,
       bestUseDate,
+      explicitExpiry,
     });
   }
 
@@ -931,20 +1018,37 @@ function schedulePush() {
 
 // ─── AI fallback (via Cloudflare Worker proxy holding the DeepSeek key) ────────
 const AI_PROXY = 'ai_proxy';
+const AI_MODEL = 'ai_model';
 const DEFAULT_PROXY = 'https://fridge-ai.dnzzz.workers.dev';
+const DEFAULT_MODEL = 'deepseek-v4-flash';
 const aiStatus = document.getElementById('ai-status');
 const getProxy = () => (localStorage.getItem(AI_PROXY) || DEFAULT_PROXY).trim();
+const getModel = () => localStorage.getItem(AI_MODEL) || DEFAULT_MODEL;
+
+function setModelOptions(models, selected) {
+  const sel = document.getElementById('ai-model');
+  const list = (models && models.length) ? models.slice() : [];
+  if (selected && !list.includes(selected)) list.unshift(selected);
+  if (!list.length) list.push(DEFAULT_MODEL);
+  sel.innerHTML = '';
+  list.forEach(m => {
+    const o = document.createElement('option');
+    o.value = m; o.textContent = m;
+    if (m === selected) o.selected = true;
+    sel.appendChild(o);
+  });
+}
 
 async function aiLookup(name, location) {
   const res = await fetch(getProxy(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, location }),
+    body: JSON.stringify({ name, location, model: getModel() }),
   });
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const data = await res.json();
   const n = parseInt(data.days, 10);
-  return n > 0 ? n : null;
+  return { days: n > 0 ? n : null, category: data.category || null };
 }
 
 // open / close settings
@@ -953,7 +1057,8 @@ syncBtn.addEventListener('click', () => {
   if (!getToken()) setSync('', '未配置');
   else syncStatus.textContent = syncTime() ? '已同步 · ' + syncTime() : '已配置';
   document.getElementById('ai-proxy').value = getProxy();
-  aiStatus.textContent = getProxy() ? 'AI 已启用' : 'AI 未配置';
+  setModelOptions([], getModel());
+  aiStatus.textContent = getProxy() ? 'AI 已启用（' + getModel() + '）' : 'AI 未配置';
   syncOverlay.classList.add('open');
 });
 syncOverlay.addEventListener('click', e => { if (e.target === syncOverlay) syncOverlay.classList.remove('open'); });
@@ -969,8 +1074,31 @@ document.getElementById('s-pull').addEventListener('click', pullFromGist);
 
 document.getElementById('ai-save').addEventListener('click', () => {
   const u = document.getElementById('ai-proxy').value.trim();
-  if (u) { localStorage.setItem(AI_PROXY, u); aiStatus.textContent = 'AI 已启用'; }
+  const m = document.getElementById('ai-model').value || DEFAULT_MODEL;
+  localStorage.setItem(AI_MODEL, m);
+  if (u) { localStorage.setItem(AI_PROXY, u); aiStatus.textContent = 'AI 已启用（' + m + '）'; }
   else { localStorage.removeItem(AI_PROXY); aiStatus.textContent = 'AI 未配置'; }
+});
+
+document.getElementById('ai-fetch').addEventListener('click', async () => {
+  aiStatus.textContent = '拉取模型中…';
+  try {
+    const res = await fetch(getProxy(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'models' }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data.models && data.models.length) {
+      setModelOptions(data.models, getModel());
+      aiStatus.textContent = '拉取到 ' + data.models.length + ' 个模型，选好后点保存';
+    } else {
+      aiStatus.textContent = '没拉到模型：' + (data.error || '空列表');
+    }
+  } catch (e) {
+    aiStatus.textContent = '拉取失败：' + e.message;
+  }
 });
 
 // ─── init ─────────────────────────────────────────────────────────────────────
