@@ -410,6 +410,11 @@
     </div>
 
     <div class="field">
+      <label>保质日期（可选，留空则按购买日期 + 天数算）</label>
+      <input type="date" id="f-expiry">
+    </div>
+
+    <div class="field">
       <label>建议食用（天数）</label>
       <div class="shelf-row">
         <input type="text" id="f-shelf" placeholder="天数" inputmode="numeric">
@@ -624,6 +629,7 @@ const overlay = document.getElementById('overlay');
 const sheet   = document.getElementById('sheet');
 const fName   = document.getElementById('f-name');
 const fDate   = document.getElementById('f-date');
+const fExpiry = document.getElementById('f-expiry');
 const fShelf  = document.getElementById('f-shelf');
 const shelfHint = document.getElementById('shelf-hint');
 const btnSubmit = document.getElementById('btn-submit');
@@ -654,6 +660,7 @@ function openSheet(item) {
     document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('selected'));
   }
 
+  fExpiry.value = '';
   shelfHint.textContent = '';
   shelfHint.className = 'shelf-hint';
   fName.classList.remove('error');
@@ -753,13 +760,16 @@ btnSubmit.addEventListener('click', () => {
 
   if (!fName.value.trim()) { fName.classList.add('error'); ok = false; }
   // category is optional — defaults to '其他'
+  // need either an explicit expiry date OR a positive day count
   const shelfDays = parseInt(fShelf.value, 10);
-  if (!shelfDays || shelfDays <= 0) { fShelf.classList.add('error'); ok = false; }
+  if (!fExpiry.value && (!shelfDays || shelfDays <= 0)) { fShelf.classList.add('error'); ok = false; }
   if (!ok) return;
 
   const purchaseDate = fDate.value;
-  const bestUseDate = new Date(new Date(purchaseDate + 'T12:00:00').getTime() + shelfDays * 86400000)
-    .toISOString().slice(0, 10);
+  const bestUseDate = fExpiry.value
+    ? fExpiry.value
+    : new Date(new Date(purchaseDate + 'T12:00:00').getTime() + shelfDays * 86400000)
+        .toISOString().slice(0, 10);
 
   if (editingId) {
     const items = loadItems();
