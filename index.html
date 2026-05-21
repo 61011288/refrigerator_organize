@@ -40,7 +40,42 @@
       background: var(--bg);
       flex-shrink: 0;
       padding-top: var(--safe-top);
+      position: relative;
     }
+
+    /* ── sync (cloud) button ── */
+    .sync-btn {
+      position: absolute;
+      right: 12px;
+      top: var(--safe-top);
+      height: var(--tab-h);
+      display: flex;
+      align-items: center;
+      background: none;
+      border: none;
+      padding: 0 4px;
+      cursor: pointer;
+      color: var(--muted);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .sync-btn.ok      { color: var(--accent); }
+    .sync-btn.syncing { color: #f0b429; }
+    .sync-btn.err     { color: #d93025; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+    .sync-btn.syncing svg { animation: pulse 0.9s ease-in-out infinite; }
+
+    .sync-status {
+      font-size: 12px;
+      color: var(--muted);
+      margin: -8px 0 16px;
+    }
+    .sync-help {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin: 4px 0 16px;
+    }
+    .sync-help a { color: var(--accent); text-decoration: none; }
 
     .tab {
       flex: 1;
@@ -107,7 +142,11 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
     }
+
+    .food-card:active { background: #ebebed; }
 
     .food-info { flex: 1; min-width: 0; }
 
@@ -143,12 +182,12 @@
       position: fixed;
       bottom: calc(var(--safe-bottom) + 24px);
       right: 24px;
-      width: 32px;
-      height: 32px;
+      width: 56px;
+      height: 56px;
       border-radius: 50%;
       background: var(--accent);
       color: #fff;
-      font-size: 20px;
+      font-size: 26px;
       line-height: 1;
       display: flex;
       align-items: center;
@@ -293,6 +332,25 @@
 
     .btn-submit:active { opacity: 0.85; }
     .btn-submit:disabled { opacity: 0.4; cursor: default; }
+
+    /* ── action sheet buttons ── */
+    .action-btn {
+      width: 100%;
+      height: 50px;
+      border: none;
+      border-radius: 12px;
+      background: var(--surface);
+      font-size: 16px;
+      font-family: inherit;
+      color: var(--text);
+      cursor: pointer;
+      margin-bottom: 8px;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .action-btn:active { opacity: 0.7; }
+    .action-btn.eat    { color: #34a853; }
+    .action-btn.danger { color: #d93025; }
   </style>
 </head>
 <body>
@@ -300,6 +358,9 @@
 <div class="tabs">
   <div class="tab active" data-tab="fridge">冷藏</div>
   <div class="tab" data-tab="freezer">冷冻</div>
+  <button class="sync-btn" id="sync-btn" title="云备份" aria-label="云备份">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M19 18H6a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 16.5 8.5a.6.6 0 0 0 .04.2A4 4 0 0 1 19 18z"/></svg>
+  </button>
 </div>
 
 <div class="panel active" id="panel-fridge">
@@ -351,6 +412,41 @@
   </div>
 </div>
 
+<!-- action sheet -->
+<div class="overlay" id="action-overlay">
+  <div class="sheet" id="action-sheet">
+    <div class="sheet-handle"></div>
+    <h2 id="action-title">操作</h2>
+    <button class="action-btn eat" id="act-eat">吃掉了</button>
+    <button class="action-btn" id="act-edit">编辑</button>
+    <button class="action-btn danger" id="act-delete">删除</button>
+  </div>
+</div>
+
+<!-- sync settings sheet -->
+<div class="overlay" id="sync-overlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h2>云备份（GitHub Gist）</h2>
+
+    <div class="field">
+      <label>GitHub Token（需 gist 权限）</label>
+      <input type="password" id="s-token" placeholder="ghp_… 或 github_pat_…" autocomplete="off">
+    </div>
+
+    <p class="sync-help">
+      获取方式：打开
+      <a href="https://github.com/settings/tokens/new?scopes=gist&description=fridge" target="_blank" rel="noopener">github.com/settings/tokens</a>
+      → Generate new token (classic) → 勾选 <b>gist</b> → 生成后复制粘贴到上面。
+    </p>
+
+    <p class="sync-status" id="sync-status">未配置</p>
+
+    <button class="btn-submit" id="s-save">保存并同步</button>
+    <button class="action-btn" id="s-pull" style="margin-top:10px;">从云端恢复</button>
+  </div>
+</div>
+
 <script>
 // ─── USDA FoodKeeper data (fridge days, best-use max) ───────────────────────
 // Format: keyword → days in fridge (冷藏). Freezer items use separate logic.
@@ -397,12 +493,21 @@ function loadItems() {
 
 function saveItems(items) {
   localStorage.setItem('fridge_items', JSON.stringify(items));
+  schedulePush();
 }
 
 function addItem(item) {
   const items = loadItems();
   items.push(item);
   saveItems(items);
+}
+
+function getItem(id) {
+  return loadItems().find(i => i.id === id);
+}
+
+function deleteItem(id) {
+  saveItems(loadItems().filter(i => i.id !== id));
 }
 
 // ─── render ──────────────────────────────────────────────────────────────────
@@ -447,6 +552,7 @@ function renderList(location) {
   let html = '';
   CATEGORIES.forEach(cat => {
     if (groups[cat].length === 0) return;
+    groups[cat].sort((a, b) => daysRemaining(a.bestUseDate) - daysRemaining(b.bestUseDate));
     html += `<div class="category-label">${cat}</div>`;
     groups[cat].forEach(item => {
       const days = daysRemaining(item.bestUseDate);
@@ -494,25 +600,45 @@ const shelfHint = document.getElementById('shelf-hint');
 const btnSubmit = document.getElementById('btn-submit');
 
 let selectedCat = null;
+let editingId = null;
 
-function openSheet() {
-  fDate.value = today();
-  fName.value = '';
-  fShelf.value = '';
+function openSheet(item) {
+  editingId = item ? item.id : null;
+  document.querySelector('#sheet h2').textContent = item ? '编辑食材' : '添加食材';
+  btnSubmit.textContent = item ? '保存' : '添加';
+
+  if (item) {
+    fName.value = item.name;
+    fDate.value = item.purchaseDate;
+    fShelf.value = Math.round(
+      (new Date(item.bestUseDate) - new Date(item.purchaseDate)) / 86400000
+    );
+    selectedCat = item.category;
+    document.querySelectorAll('.cat-pill').forEach(p =>
+      p.classList.toggle('selected', p.dataset.cat === item.category)
+    );
+  } else {
+    fDate.value = today();
+    fName.value = '';
+    fShelf.value = '';
+    selectedCat = null;
+    document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('selected'));
+  }
+
   shelfHint.textContent = '';
   shelfHint.className = 'shelf-hint';
-  selectedCat = null;
-  document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('selected'));
+  fName.classList.remove('error');
+  fShelf.classList.remove('error', 'needs-input');
   btnSubmit.disabled = false;
   overlay.classList.add('open');
-  setTimeout(() => fName.focus(), 320);
+  if (!item) setTimeout(() => fName.focus(), 320);
 }
 
 function closeSheet() {
   overlay.classList.remove('open');
 }
 
-document.getElementById('fab').addEventListener('click', openSheet);
+document.getElementById('fab').addEventListener('click', () => openSheet());
 overlay.addEventListener('click', e => { if (e.target === overlay) closeSheet(); });
 
 // category pills
@@ -572,21 +698,192 @@ btnSubmit.addEventListener('click', () => {
   const bestUseDate = new Date(new Date(purchaseDate + 'T12:00:00').getTime() + shelfDays * 86400000)
     .toISOString().slice(0, 10);
 
-  addItem({
-    id: Date.now().toString(),
-    name: fName.value.trim(),
-    category: selectedCat || '其他',
-    location: activeTab,
-    purchaseDate,
-    bestUseDate,
-  });
+  if (editingId) {
+    const items = loadItems();
+    const idx = items.findIndex(i => i.id === editingId);
+    if (idx !== -1) {
+      items[idx] = {
+        ...items[idx],
+        name: fName.value.trim(),
+        category: selectedCat || '其他',
+        purchaseDate,
+        bestUseDate,
+      };
+      saveItems(items);
+    }
+  } else {
+    addItem({
+      id: Date.now().toString(),
+      name: fName.value.trim(),
+      category: selectedCat || '其他',
+      location: activeTab,
+      purchaseDate,
+      bestUseDate,
+    });
+  }
 
   closeSheet();
   renderAll();
 });
 
+// ─── action sheet (edit / delete) ────────────────────────────────────────────
+const actionOverlay = document.getElementById('action-overlay');
+let actionItemId = null;
+
+function openActionSheet(id) {
+  const item = getItem(id);
+  if (!item) return;
+  actionItemId = id;
+  document.getElementById('action-title').textContent = item.name;
+  actionOverlay.classList.add('open');
+}
+
+function closeActionSheet() {
+  actionOverlay.classList.remove('open');
+}
+
+actionOverlay.addEventListener('click', e => {
+  if (e.target === actionOverlay) closeActionSheet();
+});
+
+document.getElementById('act-eat').addEventListener('click', () => {
+  deleteItem(actionItemId);
+  closeActionSheet();
+  renderAll();
+});
+
+document.getElementById('act-delete').addEventListener('click', () => {
+  deleteItem(actionItemId);
+  closeActionSheet();
+  renderAll();
+});
+
+document.getElementById('act-edit').addEventListener('click', () => {
+  const item = getItem(actionItemId);
+  closeActionSheet();
+  if (item) openSheet(item);
+});
+
+['fridge', 'freezer'].forEach(loc => {
+  document.getElementById('list-' + loc).addEventListener('click', e => {
+    const card = e.target.closest('.food-card');
+    if (card) openActionSheet(card.dataset.id);
+  });
+});
+
+// ─── cloud sync (GitHub Gist) ─────────────────────────────────────────────────
+const TOKEN_KEY = 'gh_token';
+const GIST_KEY  = 'gist_id';
+const GIST_FILE = 'fridge.json';
+const syncBtn    = document.getElementById('sync-btn');
+const syncOverlay = document.getElementById('sync-overlay');
+const syncStatus = document.getElementById('sync-status');
+let pushTimer = null;
+
+const getToken  = () => localStorage.getItem(TOKEN_KEY) || '';
+const getGistId = () => localStorage.getItem(GIST_KEY) || '';
+
+function setSync(state, text) {
+  syncBtn.className = 'sync-btn' + (state ? ' ' + state : '');
+  if (text) syncStatus.textContent = text;
+}
+
+function syncTime() {
+  const t = localStorage.getItem('last_sync');
+  return t ? new Date(t).toLocaleString('zh-CN', { hour12: false }) : '';
+}
+
+function ghFetch(url, opts = {}) {
+  return fetch(url, {
+    ...opts,
+    headers: {
+      'Authorization': 'Bearer ' + getToken(),
+      'Accept': 'application/vnd.github+json',
+      ...(opts.headers || {}),
+    },
+  });
+}
+
+async function pushToGist() {
+  if (!getToken()) return;
+  setSync('syncing', '同步中…');
+  const content = localStorage.getItem('fridge_items') || '[]';
+  const body = JSON.stringify({
+    description: '冰箱食材备份',
+    public: false,
+    files: { [GIST_FILE]: { content } },
+  });
+  try {
+    let gistId = getGistId(), res;
+    if (gistId) {
+      res = await ghFetch('https://api.github.com/gists/' + gistId, { method: 'PATCH', body });
+      if (res.status === 404) gistId = '';   // gist deleted → recreate
+    }
+    if (!gistId) {
+      res = await ghFetch('https://api.github.com/gists', { method: 'POST', body });
+    }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data.id) localStorage.setItem(GIST_KEY, data.id);
+    localStorage.setItem('last_sync', new Date().toISOString());
+    setSync('ok', '已同步 · ' + syncTime());
+  } catch (e) {
+    setSync('err', '同步失败：' + e.message);
+  }
+}
+
+async function pullFromGist() {
+  if (!getToken() || !getGistId()) return;
+  setSync('syncing', '同步中…');
+  try {
+    const res = await ghFetch('https://api.github.com/gists/' + getGistId());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const file = data.files && data.files[GIST_FILE];
+    if (file && file.content) {
+      localStorage.setItem('fridge_items', file.content);   // no schedulePush (direct write)
+      renderAll();
+    }
+    localStorage.setItem('last_sync', new Date().toISOString());
+    setSync('ok', '已同步 · ' + syncTime());
+  } catch (e) {
+    setSync('err', '恢复失败：' + e.message);
+  }
+}
+
+function schedulePush() {
+  if (!getToken()) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(pushToGist, 800);
+}
+
+// open / close settings
+syncBtn.addEventListener('click', () => {
+  document.getElementById('s-token').value = getToken();
+  if (!getToken()) setSync('', '未配置');
+  else syncStatus.textContent = syncTime() ? '已同步 · ' + syncTime() : '已配置';
+  syncOverlay.classList.add('open');
+});
+syncOverlay.addEventListener('click', e => { if (e.target === syncOverlay) syncOverlay.classList.remove('open'); });
+
+document.getElementById('s-save').addEventListener('click', async () => {
+  const t = document.getElementById('s-token').value.trim();
+  if (t) localStorage.setItem(TOKEN_KEY, t);
+  else { localStorage.removeItem(TOKEN_KEY); setSync('', '未配置'); return; }
+  await pushToGist();
+});
+
+document.getElementById('s-pull').addEventListener('click', pullFromGist);
+
 // ─── init ─────────────────────────────────────────────────────────────────────
 renderAll();
+
+if (getToken()) {
+  setSync('ok', '已同步 · ' + (syncTime() || '…'));
+  if (getGistId()) pullFromGist();   // restore latest from cloud on open
+} else {
+  setSync('', '未配置');
+}
 </script>
 
 </body>
