@@ -53,6 +53,7 @@ export default {
     if (!name) return json({ error: 'no name' }, 400, cors);
 
     const model = body.model || 'deepseek-v4-flash';
+    const think = !!body.think;
 
     try {
       const r = await fetch('https://api.deepseek.com/chat/completions', {
@@ -63,22 +64,12 @@ export default {
         },
         body: JSON.stringify({
           model,
-          thinking: { type: 'disabled' },
+          thinking: { type: think ? 'enabled' : 'disabled' },
           temperature: 0,
-          max_tokens: 60,
+          max_tokens: think ? 800 : 60,
           messages: [
-            { role: 'system', content: '你是食材分类与保鲜助手。给定食材名称和存放方式，输出它的类目和建议食用天数。类目只能是这八个之一：蔬菜、水果、肉类、鱼虾、蛋奶、酱料、饮品、其他。判断要看食材主体：调味酱料归“酱料”而不是其原料。只回复 JSON：{"category":"类目","days":整数}，不要多余文字。' },
-            { role: 'user', content: '请分类并估算【牛油果】（冷藏）。' },
-            { role: 'assistant', content: '{"category":"水果","days":3}' },
-            { role: 'user', content: '请分类并估算【玉米】（冷藏）。' },
-            { role: 'assistant', content: '{"category":"蔬菜","days":5}' },
-            { role: 'user', content: '请分类并估算【番茄酱】（冷藏）。' },
-            { role: 'assistant', content: '{"category":"酱料","days":60}' },
-            { role: 'user', content: '请分类并估算【可乐】（冷藏）。' },
-            { role: 'assistant', content: '{"category":"饮品","days":30}' },
-            { role: 'user', content: '请分类并估算【杏鲍菇】（冷藏）。' },
-            { role: 'assistant', content: '{"category":"蔬菜","days":7}' },
-            { role: 'user', content: '请分类并估算【' + name + '】（' + loc + '）。' },
+            { role: 'system', content: '你是食品保鲜助手。根据食材名称和存放方式，估算它在该方式下还能放心食用多少天（整数，按食品安全常识，冷冻通常能存数月），并判断类目（只能是：蔬菜、水果、肉类、鱼虾、蛋奶、酱料、饮品、其他；调味酱料归“酱料”）。只回复 JSON：{"category":"水果","days":3}，不要多余文字。' },
+            { role: 'user', content: '食材：' + name + '；存放方式：' + loc },
           ],
         }),
       });
