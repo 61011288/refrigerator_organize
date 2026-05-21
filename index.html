@@ -458,22 +458,21 @@
 
     <hr>
 
-    <div class="sub-title">AI 估算（DeepSeek）</div>
+    <div class="sub-title">AI 估算（DeepSeek 代理）</div>
 
     <div class="field">
-      <label>DeepSeek API Key</label>
-      <input type="password" id="ai-key" placeholder="sk-…" autocomplete="off">
+      <label>AI 代理地址（Cloudflare Worker URL）</label>
+      <input type="text" id="ai-proxy" placeholder="https://xxx.workers.dev" autocomplete="off" inputmode="url">
     </div>
 
     <p class="sync-help">
-      USDA 表里查不到的食材，会自动用 AI 估算建议天数。Key 获取：打开
-      <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">platform.deepseek.com</a>
-      → API keys → 创建。仅存本地、不进代码。
+      USDA 表里查不到的食材，会自动用 AI 估算建议天数。DeepSeek key 藏在你的
+      Cloudflare Worker 里，这里只填 Worker 网址，前端不接触 key。
     </p>
 
     <p class="sync-status" id="ai-status">AI 未配置</p>
 
-    <button class="btn-submit" id="ai-save">保存 AI Key</button>
+    <button class="btn-submit" id="ai-save">保存</button>
   </div>
 </div>
 
@@ -709,7 +708,7 @@ async function doLookup() {
   if (fShelf.value) return;
 
   // 2) AI fallback (only if a key is configured)
-  if (!getAiKey()) { setMissingHint(); return; }
+  if (!getProxy()) { setMissingHint(); return; }
 
   shelfHint.textContent = 'AI 估算中…';
   shelfHint.className = 'shelf-hint ai';
@@ -921,34 +920,20 @@ function schedulePush() {
   pushTimer = setTimeout(pushToGist, 800);
 }
 
-// ─── AI fallback (DeepSeek, OpenAI-compatible) ────────────────────────────────
-const AI_KEY = 'deepseek_key';
+// ─── AI fallback (via Cloudflare Worker proxy holding the DeepSeek key) ────────
+const AI_PROXY = 'ai_proxy';
 const aiStatus = document.getElementById('ai-status');
-const getAiKey = () => localStorage.getItem(AI_KEY) || '';
+const getProxy = () => (localStorage.getItem(AI_PROXY) || '').trim();
 
 async function aiLookup(name, location) {
-  const loc = location === 'freezer' ? '冷冻' : '冷藏';
-  const res = await fetch('https://api.deepseek.com/chat/completions', {
+  const res = await fetch(getProxy(), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + getAiKey(),
-    },
-    body: JSON.stringify({
-      model: 'deepseek-chat',
-      temperature: 0,
-      max_tokens: 10,
-      messages: [
-        { role: 'system', content: '你是食品保鲜助手。根据食材名称和存放方式，估算建议食用天数。只回复一个正整数，不要任何其他文字、单位或标点。' },
-        { role: 'user', content: '食材：' + name + '；存放方式：' + loc },
-      ],
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, location }),
   });
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const data = await res.json();
-  const txt = ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '').trim();
-  const m = txt.match(/\d+/);
-  const n = m ? parseInt(m[0], 10) : 0;
+  const n = parseInt(data.days, 10);
   return n > 0 ? n : null;
 }
 
@@ -957,8 +942,8 @@ syncBtn.addEventListener('click', () => {
   document.getElementById('s-token').value = getToken();
   if (!getToken()) setSync('', '未配置');
   else syncStatus.textContent = syncTime() ? '已同步 · ' + syncTime() : '已配置';
-  document.getElementById('ai-key').value = getAiKey();
-  aiStatus.textContent = getAiKey() ? 'AI 已启用' : 'AI 未配置';
+  document.getElementById('ai-proxy').value = getProxy();
+  aiStatus.textContent = getProxy() ? 'AI 已启用' : 'AI 未配置';
   syncOverlay.classList.add('open');
 });
 syncOverlay.addEventListener('click', e => { if (e.target === syncOverlay) syncOverlay.classList.remove('open'); });
@@ -973,9 +958,9 @@ document.getElementById('s-save').addEventListener('click', async () => {
 document.getElementById('s-pull').addEventListener('click', pullFromGist);
 
 document.getElementById('ai-save').addEventListener('click', () => {
-  const k = document.getElementById('ai-key').value.trim();
-  if (k) { localStorage.setItem(AI_KEY, k); aiStatus.textContent = 'AI 已启用'; }
-  else { localStorage.removeItem(AI_KEY); aiStatus.textContent = 'AI 未配置'; }
+  const u = document.getElementById('ai-proxy').value.trim();
+  if (u) { localStorage.setItem(AI_PROXY, u); aiStatus.textContent = 'AI 已启用'; }
+  else { localStorage.removeItem(AI_PROXY); aiStatus.textContent = 'AI 未配置'; }
 });
 
 // ─── init ─────────────────────────────────────────────────────────────────────
