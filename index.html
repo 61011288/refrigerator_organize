@@ -922,8 +922,9 @@ function schedulePush() {
 
 // ─── AI fallback (via Cloudflare Worker proxy holding the DeepSeek key) ────────
 const AI_PROXY = 'ai_proxy';
+const DEFAULT_PROXY = 'https://fridge-ai.dnzzz.workers.dev';
 const aiStatus = document.getElementById('ai-status');
-const getProxy = () => (localStorage.getItem(AI_PROXY) || '').trim();
+const getProxy = () => (localStorage.getItem(AI_PROXY) || DEFAULT_PROXY).trim();
 
 async function aiLookup(name, location) {
   const res = await fetch(getProxy(), {
