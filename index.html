@@ -1037,6 +1037,14 @@ function schedulePush() {
   pushTimer = setTimeout(pushToGist, 800);
 }
 
+// flush a pending debounced push immediately if the page is about to close/background,
+// otherwise edits made right before closing the tab never reach the gist
+function flushPendingPush() {
+  if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; pushToGist(); }
+}
+window.addEventListener('pagehide', flushPendingPush);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushPendingPush(); });
+
 // ─── AI fallback (via Cloudflare Worker proxy holding the DeepSeek key) ────────
 const AI_PROXY = 'ai_proxy';
 const AI_MODEL = 'ai_model';
